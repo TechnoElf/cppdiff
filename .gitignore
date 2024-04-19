@@ -1,0 +1,5 @@
+.direnv
+.envrc
+
+target
+cmake-build-debug
