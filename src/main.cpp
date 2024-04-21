@@ -8,7 +8,8 @@
 #include <iostream>
 #include <map>
 
-void print_vec(const std::vector<int64_t>& vec) {
+template<typename T>
+void print_vec(const std::vector<T>& vec) {
     std::cout << "[";
     if (vec.size() > 0) {
         std::cout << vec[0];
@@ -19,7 +20,8 @@ void print_vec(const std::vector<int64_t>& vec) {
     std::cout << "]";
 }
 
-void print_vec(const std::vector<std::pair<int64_t, int64_t>>& vec) {
+template<typename T>
+void print_vec(const std::vector<std::pair<T, T>>& vec) {
     std::cout << "[";
     if (vec.size() > 0) {
         std::cout << std::endl << "  (" << vec[0].first << ", " << vec[0].second << ")";
@@ -29,6 +31,21 @@ void print_vec(const std::vector<std::pair<int64_t, int64_t>>& vec) {
         std::cout << std::endl;
     }
     std::cout << "]";
+}
+
+template<typename A, typename B>
+void print_map(const std::map<A, B>& map) {
+    std::cout << "{";
+    if (map.size() > 0) {
+        auto iter = map.begin();
+        std::cout << std::endl << "  " << iter->first << ": " << iter->second;
+        iter++;
+        for (; iter != map.end(); iter++) {
+            std::cout << ", " << std::endl << "  " << iter->first << ": " << iter->second;
+        }
+        std::cout << std::endl;
+    }
+    std::cout << "}";
 }
 
 std::vector<std::pair<int64_t, int64_t>> myers_recursive(const std::string& a, const std::string& b, int64_t x, int64_t y, int64_t w, int64_t h) {
@@ -207,78 +224,130 @@ std::vector<std::pair<int64_t, int64_t>> myers_diff(const std::string& a, const 
     return result;
 }
 
-std::vector<std::pair<int64_t, int64_t>> histogram_recursive(const std::string& a, const std::string& b, size_t x, size_t y, size_t w, size_t h) {
-    size_t equivalent_pre = 0;
-    for (; w > 0 && h > 0 && a[x] == b[y]; equivalent_pre++) {
-        x++;
-        y++;
-        w--;
-        h--;
-    }
+std::vector<std::pair<size_t, size_t>> patience_sort(const std::map<size_t, size_t>& index_matches) {
+    struct PileElement {
+        size_t a_index;
+        size_t b_index;
+        size_t prev;
+    };
 
-    size_t equivalent_post = 0;
-    for (; w > 0 && h > 0 && a[w - 1] == b[h - 1]; equivalent_post++) {
-        w--;
-        h--;
-    }
+    std::vector<std::vector<PileElement>> piles;
 
-    std::map<char, std::vector<size_t>> a_histogram;
-    for (size_t line = 0; line < w; line++) {
-        if (a_histogram.contains(a[line])) {
-            auto chain = a_histogram[a[line]];
-            chain.insert(chain.end(), line);
-        } else {
-            auto chain = std::vector<size_t>();
-            chain.insert(chain.end(), line);
-            a_histogram.insert_or_assign(a[line], chain);
+    for (auto [a_index, b_index] : index_matches) {
+        if (piles.size() == 0) {
+            piles.push_back({PileElement(a_index, b_index, 0)});
+            continue;
         }
-    }
 
-    std::map<char, std::vector<size_t>> b_histogram;
-    for (size_t line = 0; line < w; line++) {
-        if (a_histogram.contains(b[line])) {
-            if (b_histogram.contains(b[line])) {
-                auto chain = b_histogram[b[line]];
-                chain.insert(chain.end(), line);
-            } else {
-                auto chain = std::vector<size_t>();
-                chain.insert(chain.end(), line);
-                b_histogram.insert_or_assign(b[line], chain);
+        for (size_t i = 0; i <= piles.size(); i++) {
+            if (i == piles.size()) {
+                piles.push_back({PileElement(a_index, b_index, piles[i - 1].size() - 1)});
+                break;
+            }
+
+            if (piles[i][piles[i].size() - 1].b_index > b_index) {
+                piles[i].push_back(PileElement(a_index, b_index, piles[i - 1].size() - 1));
+                break;
             }
         }
     }
 
-    std::vector<std::pair<int64_t, int64_t>> result;
+    std::vector<std::pair<size_t, size_t>> increasing_matches;
+    size_t prev_pile_element = piles[piles.size() - 1].size() - 1;
 
-    if (equivalent_pre > 0) {
-        result.insert(result.end(), std::pair(equivalent_pre, equivalent_pre));
+    for (size_t i = piles.size(); i > 0; i--) {
+        PileElement e = piles[i - 1][prev_pile_element];
+        increasing_matches.insert(increasing_matches.begin(), std::pair(e.a_index, e.b_index));
+        prev_pile_element = e.prev;
     }
 
-    if (b_histogram.size() == 0) {
-        result.insert(result.end(), std::pair(w, 0));
-        result.insert(result.end(), std::pair(0, h));
-    } else {
-        std::vector<std::pair<size_t, size_t>> pairs;
-    }
-
-    if (equivalent_post > 0) {
-        result.insert(result.end(), std::pair(equivalent_post, equivalent_post));
-    }
-
-    return result;
+    return increasing_matches;
 }
 
-std::vector<std::pair<int64_t, int64_t>> histogram_diff(const std::string& a, const std::string& b) {
-    std::vector<std::pair<int64_t, int64_t>> result = histogram_recursive(a, b, 0, 0, a.size(), b.size());
+std::vector<std::pair<int64_t, int64_t>> patience_recursive(const std::string& a, const std::string& b, int64_t x, int64_t y, int64_t w, int64_t h) {
+    std::map<char, size_t> a_count;
+    std::map<char, size_t> a_index;
+    std::map<char, size_t> b_count;
+    std::map<char, size_t> b_index;
+
+    for (int64_t i = 0; i < w; i++) {
+        a_count[a[x + i]] += 1;
+        a_index[a[x + i]] += i;
+    }
+
+    for (int64_t i = 0; i < h; i++) {
+        b_count[b[y + i]] += 1;
+        b_index[b[y + i]] += i;
+    }
+
+    std::map<size_t, size_t> index_matches;
+
+    for (auto [element, count] : a_count) {
+        if (count == 1 && b_count[element] == 1) {
+            index_matches[a_index[element]] = b_index[element];
+        }
+    }
+
+    if (index_matches.size() == 0) {
+        return myers_recursive(a, b, x, y, w, h);
+    }
+
+    std::vector<std::pair<size_t, size_t>> increasing_matches = patience_sort(index_matches);
+
+    std::vector<std::pair<int64_t, int64_t>> diff;
+
+    size_t prev_a_index = 0;
+    size_t prev_b_index = 0;
+
+    for (auto [a_index, b_index] : increasing_matches) {
+        size_t a_delta = a_index - prev_a_index;
+        size_t b_delta = b_index - prev_b_index;
+
+        if (a_delta > 0 && b_delta > 0) {
+            std::vector<std::pair<int64_t, int64_t>> sub = patience_recursive(a, b, prev_a_index, prev_b_index, a_delta, b_delta);
+            diff.insert(diff.end(), sub.begin(), sub.end());
+        } else if (a_delta > 0) {
+            diff.push_back(std::pair(a_delta, 0));
+        } else if (b_delta > 0) {
+            diff.push_back(std::pair(0, b_delta));
+        }
+
+        if (diff[diff.size() - 1].first == diff[diff.size() - 1].second) {
+            diff[diff.size() - 1].first += 1;
+            diff[diff.size() - 1].second += 1;
+        } else {
+            diff.push_back(std::pair(1, 1));
+        }
+
+        prev_a_index = a_index + 1;
+        prev_b_index = b_index + 1;
+    }
+
+    size_t a_delta = w - prev_a_index;
+    size_t b_delta = h - prev_b_index;
+
+    if (a_delta > 0) {
+        diff.push_back(std::pair(a_delta, 0));
+    }
+
+    if (b_delta > 0) {
+        diff.push_back(std::pair(0, b_delta));
+    }
+
+    return diff;
+}
+
+std::vector<std::pair<int64_t, int64_t>> patience_diff(const std::string& a, const std::string& b) {
+    std::vector<std::pair<int64_t, int64_t>> result = patience_recursive(a, b, 0, 0, a.size(), b.size());
 
     return result;
 }
 
 int main(void) {
-    std::string a = "ksnv";
-    std::string b = "s";
+    std::string a = "asdbhj";
+    std::string b = "bsdfj";
 
-    std::vector<std::pair<int64_t, int64_t>> result = myers_diff(a, b);
+    std::vector<std::pair<int64_t, int64_t>> result = patience_diff(a, b);
     std::cout << std::endl << "final result: ";
     print_vec(result);
     std::cout << std::endl;
